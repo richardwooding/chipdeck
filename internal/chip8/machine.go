@@ -17,6 +17,11 @@ const (
 )
 
 // Machine is one CHIP-8 interpreter instance.
+//
+// It is deliberately a value type with no interior pointers to mutable
+// state: assigning one Machine to another is a complete snapshot (the rom
+// slice and Rand override are shared but immutable), which is what makes
+// History's rewind-by-replay exact.
 type Machine struct {
 	Mem     [MemSize]byte
 	V       [16]byte
@@ -28,8 +33,10 @@ type Machine struct {
 	Keys    [16]bool
 	Display [DisplayW * DisplayH]byte // 0 or 1 per pixel
 	Quirks  Quirks
-	Rand    func() byte // injectable for deterministic tests
+	Rand    func() byte // test override; nil uses the built-in seeded rng
+	Cycles  uint64      // instructions executed since Reset — the rewind timeline
 
+	rng uint64 // xorshift64* state; part of the snapshot, so replays match
 	rom []byte
 
 	// Fx0A state: original interpreters register a key on RELEASE.
@@ -59,17 +66,28 @@ func (m *Machine) LoadROM(rom []byte) error {
 	return nil
 }
 
-// Reset returns the machine to power-on state, keeping the loaded ROM.
+// Reset returns the machine to power-on state, keeping the loaded ROM. The
+// rng is freshly seeded — a new run gets new randomness, while snapshots
+// taken after Reset stay internally consistent.
 func (m *Machine) Reset() {
-	*m = Machine{Quirks: m.Quirks, Rand: m.Rand, rom: m.rom}
+	*m = Machine{Quirks: m.Quirks, Rand: m.Rand, rom: m.rom, rng: rand.Uint64() | 1}
 	copy(m.Mem[FontStart:], font[:])
 	copy(m.Mem[ProgramStart:], m.rom)
 	m.PC = ProgramStart
 	m.waitReg = -1
 	m.waitPressed = -1
-	if m.Rand == nil {
-		m.Rand = func() byte { return byte(rand.IntN(256)) }
+}
+
+// randByte draws from the test override when set, else from the machine's
+// own xorshift64* state (which snapshots carry, keeping replays exact).
+func (m *Machine) randByte() byte {
+	if m.Rand != nil {
+		return m.Rand()
 	}
+	m.rng ^= m.rng << 13
+	m.rng ^= m.rng >> 7
+	m.rng ^= m.rng << 17
+	return byte(m.rng * 0x2545F4914F6CDD1D >> 56)
 }
 
 // Step fetches, decodes, and executes one instruction.
@@ -79,7 +97,11 @@ func (m *Machine) Step() error {
 	}
 	op := uint16(m.Mem[m.PC])<<8 | uint16(m.Mem[m.PC+1])
 	m.PC += 2
-	return m.execute(op)
+	if err := m.execute(op); err != nil {
+		return err
+	}
+	m.Cycles++
+	return nil
 }
 
 // Blocked reports whether the machine is parked on Fx0A waiting for a key.

@@ -13,42 +13,20 @@ func (m *Machine) execute(op uint16) error {
 
 	switch op >> 12 {
 	case 0x0:
-		switch op {
-		case 0x00E0: // CLS
-			m.Display = [DisplayW * DisplayH]byte{}
-		case 0x00EE: // RET
-			if m.SP == 0 {
-				return fmt.Errorf("stack underflow at %#04x", m.PC-2)
-			}
-			m.SP--
-			m.PC = m.Stack[m.SP]
-		default:
-			// 0nnn machine-code call: ignored, like most interpreters.
-		}
+		return m.executeSys(op)
 	case 0x1: // JP nnn
 		m.PC = nnn
 	case 0x2: // CALL nnn
-		if int(m.SP) >= len(m.Stack) {
-			return fmt.Errorf("stack overflow at %#04x", m.PC-2)
-		}
-		m.Stack[m.SP] = m.PC
-		m.SP++
-		m.PC = nnn
+		return m.call(nnn)
 	case 0x3: // SE Vx, nn
-		if m.V[x] == nn {
-			m.PC += 2
-		}
+		m.skipIf(m.V[x] == nn)
 	case 0x4: // SNE Vx, nn
-		if m.V[x] != nn {
-			m.PC += 2
-		}
+		m.skipIf(m.V[x] != nn)
 	case 0x5: // SE Vx, Vy
 		if op&0xF != 0 {
 			return fmt.Errorf("unknown opcode %#04x", op)
 		}
-		if m.V[x] == m.V[y] {
-			m.PC += 2
-		}
+		m.skipIf(m.V[x] == m.V[y])
 	case 0x6: // LD Vx, nn
 		m.V[x] = nn
 	case 0x7: // ADD Vx, nn (no carry)
@@ -59,36 +37,75 @@ func (m *Machine) execute(op uint16) error {
 		if op&0xF != 0 {
 			return fmt.Errorf("unknown opcode %#04x", op)
 		}
-		if m.V[x] != m.V[y] {
-			m.PC += 2
-		}
+		m.skipIf(m.V[x] != m.V[y])
 	case 0xA: // LD I, nnn
 		m.I = nnn
 	case 0xB: // JP v0+nnn / Bxnn quirk: xnn+vX
-		if m.Quirks.JumpVX {
-			m.PC = nnn + uint16(m.V[x])
-		} else {
-			m.PC = nnn + uint16(m.V[0])
-		}
+		m.PC = nnn + uint16(m.jumpOffset(x))
 	case 0xC: // RND Vx, nn
-		m.V[x] = m.Rand() & nn
+		m.V[x] = m.randByte() & nn
 	case 0xD:
 		m.draw(x, y, int(op&0xF))
 	case 0xE:
-		switch nn {
-		case 0x9E: // SKP Vx
-			if m.Keys[m.V[x]&0xF] {
-				m.PC += 2
-			}
-		case 0xA1: // SKNP Vx
-			if !m.Keys[m.V[x]&0xF] {
-				m.PC += 2
-			}
-		default:
-			return fmt.Errorf("unknown opcode %#04x", op)
-		}
+		return m.executeKeys(op, x, nn)
 	case 0xF:
 		return m.executeMisc(op, x, nn)
+	}
+	return nil
+}
+
+// executeSys handles the 0x0 group: CLS, RET, and ignored machine calls.
+func (m *Machine) executeSys(op uint16) error {
+	switch op {
+	case 0x00E0: // CLS
+		m.Display = [DisplayW * DisplayH]byte{}
+	case 0x00EE: // RET
+		if m.SP == 0 {
+			return fmt.Errorf("stack underflow at %#04x", m.PC-2)
+		}
+		m.SP--
+		m.PC = m.Stack[m.SP]
+	default:
+		// 0nnn machine-code call: ignored, like most interpreters.
+	}
+	return nil
+}
+
+// call pushes the return address and jumps.
+func (m *Machine) call(nnn uint16) error {
+	if int(m.SP) >= len(m.Stack) {
+		return fmt.Errorf("stack overflow at %#04x", m.PC-2)
+	}
+	m.Stack[m.SP] = m.PC
+	m.SP++
+	m.PC = nnn
+	return nil
+}
+
+// skipIf advances past the next instruction when cond holds.
+func (m *Machine) skipIf(cond bool) {
+	if cond {
+		m.PC += 2
+	}
+}
+
+// jumpOffset is Bnnn's register operand: v0 classically, vX under the quirk.
+func (m *Machine) jumpOffset(x int) byte {
+	if m.Quirks.JumpVX {
+		return m.V[x]
+	}
+	return m.V[0]
+}
+
+// executeKeys handles Ex9E/ExA1 keyboard skips.
+func (m *Machine) executeKeys(op uint16, x int, nn byte) error {
+	switch nn {
+	case 0x9E: // SKP Vx
+		m.skipIf(m.Keys[m.V[x]&0xF])
+	case 0xA1: // SKNP Vx
+		m.skipIf(!m.Keys[m.V[x]&0xF])
+	default:
+		return fmt.Errorf("unknown opcode %#04x", op)
 	}
 	return nil
 }

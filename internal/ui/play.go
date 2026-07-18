@@ -8,6 +8,10 @@ import (
 	"github.com/richardwooding/chipdeck/internal/chip8"
 )
 
+// rewindFrames is the snapshot ring size: one per 60Hz frame ≈ 10 seconds
+// of time travel for roughly 4MB.
+const rewindFrames = 600
+
 // playScene runs the machine: screen, keypad, debugger, transport keys.
 type playScene struct {
 	m        *chip8.Machine
@@ -18,6 +22,7 @@ type playScene struct {
 	screen  *screen
 	pad     *keypad
 	dbg     *debugger
+	hist    *chip8.History
 	paused  bool
 	showDbg bool
 	err     error
@@ -33,6 +38,7 @@ func newPlayScene(m *chip8.Machine, title, controls string, tickrate int) *playS
 		screen:   newScreen(),
 		pad:      newKeypad(24, 420, 36),
 		dbg:      &debugger{},
+		hist:     chip8.NewHistory(rewindFrames),
 		showDbg:  true,
 	}
 }
@@ -41,15 +47,9 @@ func (s *playScene) Update(g *Game) error {
 	switch {
 	case inpututil.IsKeyJustPressed(ebiten.KeySpace):
 		s.paused = !s.paused
-	case inpututil.IsKeyJustPressed(ebiten.KeyN):
-		if s.paused && s.err == nil {
-			s.dbg.Record(s.m.PC)
-			if err := s.m.Step(); err != nil {
-				s.err = err
-			}
-		}
 	case inpututil.IsKeyJustPressed(ebiten.KeyB):
 		s.m.Reset()
+		s.hist = chip8.NewHistory(rewindFrames)
 		s.err = nil
 	case inpututil.IsKeyJustPressed(ebiten.KeyG):
 		s.showDbg = !s.showDbg
@@ -66,6 +66,7 @@ func (s *playScene) Update(g *Game) error {
 		g.scene = newPickerScene()
 		return nil
 	}
+	s.handleStepKeys()
 
 	s.pad.Update(s.m)
 
@@ -73,6 +74,7 @@ func (s *playScene) Update(g *Game) error {
 		s.frame++
 		s.dbg.Record(s.m.PC)
 		s.m.TickTimers()
+		s.hist.Push(s.m) // after the tick: replays never re-tick timers
 		if _, err := s.m.RunCycles(s.tickrate); err != nil {
 			s.err = err
 		}
@@ -93,6 +95,48 @@ func (s *playScene) Update(g *Game) error {
 	return nil
 }
 
+// handleStepKeys runs the time-travel controls: N or → steps forward one
+// instruction, ← steps back one (shift+← a whole frame). Both auto-pause,
+// and holding a key scrubs via repeat.
+func (s *playScene) handleStepKeys() {
+	if keyRepeats(ebiten.KeyN) || keyRepeats(ebiten.KeyArrowRight) {
+		if s.paused && s.err == nil {
+			s.dbg.Record(s.m.PC)
+			if err := s.m.Step(); err != nil {
+				s.err = err
+			}
+		} else {
+			s.paused = true
+		}
+	}
+	if keyRepeats(ebiten.KeyArrowLeft) {
+		s.paused = true
+		back := uint64(1)
+		if ebiten.IsKeyPressed(ebiten.KeyShift) {
+			back = uint64(s.tickrate)
+		}
+		s.stepBack(back)
+	}
+}
+
+// keyRepeats fires on the initial press, then repeats while held.
+func keyRepeats(k ebiten.Key) bool {
+	d := inpututil.KeyPressDuration(k)
+	return d == 1 || (d > 20 && d%3 == 0)
+}
+
+// stepBack rewinds n instructions via the snapshot ring; a rewind clears
+// any halt error (you can back out of a crash and try a different path).
+func (s *playScene) stepBack(n uint64) {
+	target := uint64(0)
+	if s.m.Cycles > n {
+		target = s.m.Cycles - n
+	}
+	if s.hist.SeekCycle(s.m, target) {
+		s.err = nil
+	}
+}
+
 func (s *playScene) loadNew(data []byte, name string) {
 	m := chip8.New(chip8.DefaultQuirks())
 	if err := m.LoadROM(data); err != nil {
@@ -106,12 +150,17 @@ func (s *playScene) loadNew(data []byte, name string) {
 	s.err = nil
 	s.screen = newScreen()
 	s.dbg = &debugger{}
+	s.hist = chip8.NewHistory(rewindFrames)
 }
 
 func (s *playScene) Draw(dst *ebiten.Image) {
 	// Header
 	drawText(dst, s.title, 24, 12, colText, 2)
 	status := fmt.Sprintf("%d cyc/frame", s.tickrate)
+	if oldest, ok := s.hist.Oldest(); ok && s.m.Cycles > oldest {
+		rewindable := s.m.Cycles - oldest
+		status += fmt.Sprintf("  ↩ %.1fs", float64(rewindable)/float64(max(s.tickrate, 1))/60)
+	}
 	if s.paused {
 		status += "  ⏸ PAUSED"
 	}
@@ -128,7 +177,7 @@ func (s *playScene) Draw(dst *ebiten.Image) {
 
 	// Controls hint next to the pad
 	drawText(dst, s.controls, 210, 430, colDim, 1)
-	help := "space pause · n step · b reset · g debugger · p phosphor · +/- speed · esc games"
+	help := "space pause · →/n step · ← step back · shift+← frame back · b reset · g debugger · p phosphor · +/- speed · esc"
 	drawText(dst, help, 210, 450, colDimmer, 1)
 	if s.err != nil {
 		drawText(dst, fmt.Sprintf("halted: %v", s.err), 210, 476, colAmber, 1)

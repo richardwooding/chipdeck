@@ -11,7 +11,10 @@ Glitch Ghost, Danm8ku, Snek — all from
 [chip8Archive](https://github.com/JohnEarnest/chip8Archive)), or drop any
 `.ch8` file onto the page. The debugger panel shows registers, the stack,
 a disassembly window around PC, and an instruction trace — pause with
-`space`, single-step with `n`, and watch the machine think.
+`space`, single-step with `n`, and **step backwards with `←`**: chipdeck
+keeps ~10 seconds of frame snapshots and rewinds by exact replay (the
+machine's RNG state travels with each snapshot, so history is
+deterministic). You can even rewind out of a crash.
 
 ## Accuracy
 
@@ -31,7 +34,8 @@ display wait); dropped ROMs default to authentic VIP pacing.
 | --- | --- |
 | `1234` / `QWER` / `ASDF` / `ZXCV` | the COSMAC hex keypad (`123C/456D/789E/A0BF`) |
 | `space` | pause / resume |
-| `n` | step one instruction (while paused) |
+| `n` / `→` | step one instruction (hold to scrub) |
+| `←` | **step back one instruction** (shift+`←` a whole frame; hold to rewind) |
 | `b` | reset the ROM |
 | `g` | toggle the debugger panel |
 | `p` | toggle phosphor persistence |

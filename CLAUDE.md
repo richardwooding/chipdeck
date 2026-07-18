@@ -42,6 +42,11 @@ Timendus goldens):
   original semantics (the flags test checks `8FF4` style cases).
 - **`Fx0A` waits for key RELEASE**, not press (COSMAC VIP semantics), tracked
   by `waitReg`/`waitPressed` with PC rewind while blocked.
+- **Rewind determinism**: `History` snapshots are taken AFTER `TickTimers`
+  and before the frame's `RunCycles`; `SeekCycle` replays with `Step` only
+  and never re-ticks, so timers must be frame-stable during replay. The
+  RNG is xorshift state inside `Machine` (snapshot-carried); the `Rand`
+  func field is a test-only override that breaks replay determinism.
 - **Quirks default to original COSMAC VIP** (`DefaultQuirks()`): vF reset ON,
   memory-increment ON, display-wait ON, clipping ON, shift-vX OFF, jump-vX
   OFF. Sprite *origins* wrap even when the *body* clips.
