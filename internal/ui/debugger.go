@@ -28,7 +28,10 @@ func (d *debugger) Draw(dst *ebiten.Image, m *chip8.Machine, x, y, w, h float64)
 	cx, cy := x+10, y+8
 	line := func(s string, clr interface {
 		RGBA() (uint32, uint32, uint32, uint32)
-	}) { drawText(dst, s, cx, cy, clr, 1); cy += glyphH + 1 }
+	}) {
+		drawText(dst, s, cx, cy, clr, 1)
+		cy += glyphH + 1
+	}
 
 	drawText(dst, "REGISTERS", cx, cy, colDimmer, 1)
 	cy += glyphH + 3

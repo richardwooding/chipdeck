@@ -51,16 +51,37 @@ func (s *pickerScene) browseBtn() (x0, y0, x1, y1 float64) {
 
 func (s *pickerScene) Update(g *Game) error {
 	games := roms.Games()
-
-	if !s.autoTried {
-		s.autoTried = true
-		if n := autostartROM(); n >= 0 && n < len(games) {
-			s.selected = n
-			s.startBundled(g, games[n])
-			return nil
-		}
+	if s.tryAutostart(g, games) {
+		return nil
 	}
+	if s.handleKeys(g, games) {
+		return nil
+	}
+	if s.handleTaps(g, games) {
+		return nil
+	}
+	s.handleIncomingROM(g)
+	return nil
+}
 
+// tryAutostart honors a ?rom=N deep link once; reports whether a game started.
+func (s *pickerScene) tryAutostart(g *Game, games []roms.Entry) bool {
+	if s.autoTried {
+		return false
+	}
+	s.autoTried = true
+	n := autostartROM()
+	if n < 0 || n >= len(games) {
+		return false
+	}
+	s.selected = n
+	s.startBundled(g, games[n])
+	return true
+}
+
+// handleKeys moves the selection and starts on enter/space; reports whether
+// a game started.
+func (s *pickerScene) handleKeys(g *Game, games []roms.Entry) bool {
 	if inpututil.IsKeyJustPressed(ebiten.KeyArrowDown) && s.selected < len(games)-1 {
 		s.selected++
 	}
@@ -69,40 +90,67 @@ func (s *pickerScene) Update(g *Game) error {
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyEnter) || inpututil.IsKeyJustPressed(ebiten.KeySpace) {
 		s.startBundled(g, games[s.selected])
-		return nil
+		return true
 	}
+	return false
+}
 
-	if taps := justTaps(); len(taps) > 0 {
-		bx0, by0, bx1, by1 := s.browseBtn()
-		for _, pt := range taps {
-			if canPickFiles() && float64(pt.X) >= bx0 && float64(pt.X) < bx1 && float64(pt.Y) >= by0 && float64(pt.Y) < by1 {
-				openFilePicker()
-				continue
-			}
-			for i := range games {
-				y := pickListY + i*pickRowH
-				if pt.Y >= y && pt.Y < y+pickRowH && pt.X >= 120 && pt.X < W-120 {
-					if s.selected == i {
-						s.startBundled(g, games[i])
-						return nil
-					}
-					s.selected = i
-				}
-			}
+// handleTaps routes touch/click: browse button opens the file dialog, a tap
+// on a row selects it, a second tap starts it. Reports whether a game started.
+func (s *pickerScene) handleTaps(g *Game, games []roms.Entry) bool {
+	for _, pt := range justTaps() {
+		if s.browseHit(pt) {
+			openFilePicker()
+			continue
 		}
+		i, ok := s.rowAt(pt, len(games))
+		if !ok {
+			continue
+		}
+		if s.selected == i {
+			s.startBundled(g, games[i])
+			return true
+		}
+		s.selected = i
 	}
+	return false
+}
 
+// browseHit reports whether pt lands on the browse-files button.
+func (s *pickerScene) browseHit(pt image.Point) bool {
+	if !canPickFiles() {
+		return false
+	}
+	x0, y0, x1, y1 := s.browseBtn()
+	return float64(pt.X) >= x0 && float64(pt.X) < x1 && float64(pt.Y) >= y0 && float64(pt.Y) < y1
+}
+
+// rowAt maps a point to a game-list row index.
+func (s *pickerScene) rowAt(pt image.Point, n int) (int, bool) {
+	if pt.X < 120 || pt.X >= W-120 || pt.Y < pickListY {
+		return 0, false
+	}
+	i := (pt.Y - pickListY) / pickRowH
+	if i >= n {
+		return 0, false
+	}
+	return i, true
+}
+
+// handleIncomingROM starts a browsed or dropped .ch8 file; reports whether
+// a game started.
+func (s *pickerScene) handleIncomingROM(g *Game) bool {
 	if data, name, ok := takePickedFile(); ok {
 		s.startCustom(g, data, name)
-		return nil
+		return true
 	}
 	if files := ebiten.DroppedFiles(); files != nil {
 		if data, name, ok := firstFile(files); ok {
 			s.startCustom(g, data, name)
-			return nil
+			return true
 		}
 	}
-	return nil
+	return false
 }
 
 // startBundled runs an archive game: Octo pacing (manifest tickrate, no
