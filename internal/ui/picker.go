@@ -60,7 +60,9 @@ func (s *pickerScene) Update(g *Game) error {
 	if s.handleTaps(g, games) {
 		return nil
 	}
-	s.handleIncomingROM(g)
+	if s.handleIncomingROM(g) {
+		return nil
+	}
 	return nil
 }
 
@@ -89,8 +91,10 @@ func (s *pickerScene) handleKeys(g *Game, games []roms.Entry) bool {
 		s.selected--
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyEnter) || inpututil.IsKeyJustPressed(ebiten.KeySpace) {
-		s.startBundled(g, games[s.selected])
-		return true
+		if s.selected >= 0 && s.selected < len(games) {
+			s.startBundled(g, games[s.selected])
+			return true
+		}
 	}
 	return false
 }
