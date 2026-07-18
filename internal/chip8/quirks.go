@@ -24,3 +24,6 @@ func DefaultQuirks() Quirks {
 		JumpVX:      false,
 	}
 }
+
+// gateSmoke exists only to exercise the CI complexity gate.
+func gateSmoke() bool { return true }
