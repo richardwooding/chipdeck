@@ -71,7 +71,7 @@ func (m *Machine) execute(op uint16) error {
 			m.PC = nnn + uint16(m.V[0])
 		}
 	case 0xC: // RND Vx, nn
-		m.V[x] = m.Rand() & nn
+		m.V[x] = m.randByte() & nn
 	case 0xD:
 		m.draw(x, y, int(op&0xF))
 	case 0xE:
