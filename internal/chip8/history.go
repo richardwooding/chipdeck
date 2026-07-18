@@ -55,24 +55,22 @@ func (h *History) before(target uint64) *Machine {
 }
 
 // SeekCycle rewinds m to exactly the state it had when Cycles == target, by
-// restoring the nearest earlier snapshot and replaying forward. Snapshots
-// newer than the target are discarded (history is rewritten from here).
-// Reports false when target is behind the rewind horizon.
+// restoring the nearest earlier snapshot and replaying forward. The replay
+// runs on a scratch copy so a failing Step cannot leave m half-rewound.
+// Snapshots newer than the target are discarded (history is rewritten from
+// here). Reports false when target is behind the rewind horizon.
 func (h *History) SeekCycle(m *Machine, target uint64) bool {
 	snap := h.before(target)
 	if snap == nil {
 		return false
 	}
-	*m = *snap
-	for m.Cycles < target {
-		before := m.Cycles
-		if err := m.Step(); err != nil {
+	tmp := *snap
+	for tmp.Cycles < target {
+		if err := tmp.Step(); err != nil {
 			return false
 		}
-		if m.Cycles == before {
-			break // parked on Fx0A with no key events to replay
-		}
 	}
+	*m = tmp
 	h.dropAfter(target)
 	return true
 }
