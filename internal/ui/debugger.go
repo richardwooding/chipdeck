@@ -2,6 +2,8 @@ package ui
 
 import (
 	"fmt"
+	"slices"
+	"strings"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/vector"
@@ -36,23 +38,24 @@ func (d *debugger) Draw(dst *ebiten.Image, m *chip8.Machine, x, y, w, h float64)
 	drawText(dst, "REGISTERS", cx, cy, colDimmer, 1)
 	cy += glyphH + 3
 	for row := range 4 {
-		s := ""
+		var s strings.Builder
 		for col := range 4 {
 			i := row*4 + col
-			s += fmt.Sprintf("V%X %02X  ", i, m.V[i])
+			s.WriteString(fmt.Sprintf("V%X %02X  ", i, m.V[i]))
 		}
-		line(s, colText)
+		line(s.String(), colText)
 	}
 	cy += 4
 	line(fmt.Sprintf("I  %03X   PC %03X   SP %X", m.I, m.PC, m.SP), colAccent)
 	line(fmt.Sprintf("DT %02X    ST %02X", m.Delay, m.Sound), colDim)
 
 	if m.SP > 0 {
-		s := "STACK "
+		var s strings.Builder
+		s.WriteString("STACK ")
 		for i := range int(m.SP) {
-			s += fmt.Sprintf("%03X ", m.Stack[i])
+			s.WriteString(fmt.Sprintf("%03X ", m.Stack[i]))
 		}
-		line(s, colDim)
+		line(s.String(), colDim)
 	} else {
 		line("STACK empty", colDimmer)
 	}
@@ -60,10 +63,7 @@ func (d *debugger) Draw(dst *ebiten.Image, m *chip8.Machine, x, y, w, h float64)
 	cy += 6
 	drawText(dst, "DISASSEMBLY", cx, cy, colDimmer, 1)
 	cy += glyphH + 3
-	start := int(m.PC) - 4
-	if start < 0 {
-		start = 0
-	}
+	start := max(int(m.PC)-4, 0)
 	for addr := start; addr < start+20 && addr+1 < chip8.MemSize; addr += 2 {
 		op := uint16(m.Mem[addr])<<8 | uint16(m.Mem[addr+1])
 		clr := colDim
@@ -78,8 +78,8 @@ func (d *debugger) Draw(dst *ebiten.Image, m *chip8.Machine, x, y, w, h float64)
 	cy += 6
 	drawText(dst, "TRACE", cx, cy, colDimmer, 1)
 	cy += glyphH + 3
-	for i := len(d.trace) - 1; i >= 0; i-- {
-		pc := d.trace[i]
+	for _, pc := range slices.Backward(d.trace) {
+
 		if int(pc)+1 >= chip8.MemSize {
 			continue
 		}
