@@ -41,7 +41,7 @@ func (d *debugger) Draw(dst *ebiten.Image, m *chip8.Machine, x, y, w, h float64)
 		var s strings.Builder
 		for col := range 4 {
 			i := row*4 + col
-			s.WriteString(fmt.Sprintf("V%X %02X  ", i, m.V[i]))
+			fmt.Fprintf(&s, "V%X %02X  ", i, m.V[i])
 		}
 		line(s.String(), colText)
 	}
@@ -53,7 +53,7 @@ func (d *debugger) Draw(dst *ebiten.Image, m *chip8.Machine, x, y, w, h float64)
 		var s strings.Builder
 		s.WriteString("STACK ")
 		for i := range int(m.SP) {
-			s.WriteString(fmt.Sprintf("%03X ", m.Stack[i]))
+			fmt.Fprintf(&s, "%03X ", m.Stack[i])
 		}
 		line(s.String(), colDim)
 	} else {
